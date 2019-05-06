@@ -1,0 +1,58 @@
+---
+title: "Estratégia em Finanças - Artigo"
+author: "A. Schmidt"
+date: "May 5, 2019"
+header-includes:
+   - \usepackage{bigints}
+   - \usepackage[brazil]{babel}
+   - \usepackage{graphicx}
+   - \usepackage{amsmath}
+output: html_document
+---
+
+# Introduction
+
+This code downloads and analyzes the data for my term paper for the "Estratégia em Finanças" course, taken in 2019-2. 
+
+My to-do list is:
+
+* Write an script to download the data from the [30 mining companies listed on NYSE](https://www.investing.com/stock-screener/?sp=country::5|sector::a|industry::16|equityType::a|exchange::1%3Ceq_market_cap;1);
+    * *Stretch goal*: get some control data, for example prices of mining ore, SP500 index
+* Clear data to get the daily prices;
+    * *Stretch goal*: Get the list of the calendar business days to make easier to cross with the disaster;
+    * *Stretch goal*: Compare the prices of the Vale do Rio Doce stocks in B3 (former BM&F) and NYSE;
+* Find the cut point in the series to split the data for two separate sets: one for the Mariana disaster (05/11/2015) and another for Brumadinho disaster (25/01/2019);
+* Get the package and documentation for the synthetic control;
+    * Run some cluster analysis;
+    * See if the differences (if exist) are equal between the two disasters.
+
+## Downloading packages
+
+If mirror 10 ("UFRJ") is offline, try changing `ind = 10` to `ind = 1`. Do the same thing if you get an error installing the `BETS` package.
+
+```{r, warning = FALSE, message = FALSE}
+chooseCRANmirror(graphics = FALSE, ind = 10)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries) 
+```
+
+# Downloading and preparing data
+
+First, I need to get the symbols list, they are in a github repo.
+
+```{r, message = FALSE, warning = FALSE}
+#sheet   <- read.csv("D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Mining companies listed on NYSE.csv")
+sheet <- read.csv("https://raw.githubusercontent.com/aishameriane/Vale-Stock-and-Disasters/master/Mining%20companies%20listed%20on%20NYSE.csv?token=AAVGJTU33E37R27QB7BSAJK43DKLO")
+colnames(sheet)[1] <- "Name"
+sheet <- sheet[-c(19,5),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
+symbols <- as.character(sheet[,2])
+```
+
+```{r, message = FALSE, warning = FALSE}
+getSymbols(symbols, src = 'yahoo', from = "2015-01-01", 
+             auto.assign = TRUE, warnings = FALSE) 
+prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, NEXA, MTL, NXE, LAC, UEC, PLM, TGB, URG, PLG, UAMY, GMO, XPL)
+prices <- prices[,grepl( "Close" , names(prices) )]
+colnames(prices) <- as.character(sheet[,1])
+returns <- na.omit(Return.calculate(prices, method = "log"))*100
+```
