@@ -33,7 +33,7 @@ If mirror 10 ("UFRJ") is offline, try changing `ind = 10` to `ind = 1`. Do the s
 ```{r, warning = FALSE, message = FALSE}
 chooseCRANmirror(graphics = FALSE, ind = 10)
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries) 
+pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries, Synth) 
 ```
 
 # Downloading and preparing data
@@ -42,17 +42,89 @@ First, I need to get the symbols list, they are in a github repo.
 
 ```{r, message = FALSE, warning = FALSE}
 #sheet   <- read.csv("D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Mining companies listed on NYSE.csv")
-sheet <- read.csv("https://raw.githubusercontent.com/aishameriane/Vale-Stock-and-Disasters/master/Mining%20companies%20listed%20on%20NYSE.csv?token=AAVGJTU33E37R27QB7BSAJK43DKLO")
+sheet <- read.csv("https://raw.githubusercontent.com/aishameriane/Vale-Stock-and-Disasters/master/Mining%20companies%20listed%20on%20NYSE.csv?token=AAVGJTVQ6NHJQVC625KDS2S44IIYS")
 colnames(sheet)[1] <- "Name"
-sheet <- sheet[-c(19,5),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
+sheet <- sheet[-c(18,19,5),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
 symbols <- as.character(sheet[,2])
 ```
 
+I removed the preferential stocks from Arconic and Mechel (lines 5 and 19), as well as Nexa Resources because the series started on Oct 2017.
+
+Other stock that may be a problem is VEDL because the series starts on 01/09/2013, but I'll wait before removing it. NexGen (NXE) starts on Aug, 2013. All others have at least 10 years of data, so I'm not removing them at all. 
+
 ```{r, message = FALSE, warning = FALSE}
-getSymbols(symbols, src = 'yahoo', from = "2015-01-01", 
+getSymbols(symbols, src = 'yahoo', from = "2014-01-01", to = "2019-01-01", 
              auto.assign = TRUE, warnings = FALSE) 
-prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, NEXA, MTL, NXE, LAC, UEC, PLM, TGB, URG, PLG, UAMY, GMO, XPL)
+prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, MTL, NXE, LAC, UEC, PLM, TGB, URG, PLG, UAMY, GMO, XPL)
+volume <- prices[,grepl( "Volume" , names(prices) )]
 prices <- prices[,grepl( "Close" , names(prices) )]
+colnames(volume) <- as.character(sheet[,1])
 colnames(prices) <- as.character(sheet[,1])
-returns <- na.omit(Return.calculate(prices, method = "log"))*100
+
+returns <- diff(log(prices))
+n <- length(returns)
+returns <- returns[-1,]
+volume  <- volume[-1,]
 ```
+
+# Exploring data
+
+```{r, message = FALSE, warning = FALSE}
+datas        <- time(returns)
+df1          <- data.frame(datas, returns)
+returns_melt <- melt(data = df1, id.vars = "datas")
+
+datas        <- time(volume)
+df2 <- data.frame(datas, volume)
+volume_melt <- melt(data = df2, id.vars = "datas")
+
+cores <- brewer.pal(30, "Dark2")
+
+p4 <- ggplot(returns_melt, aes(datas, value, colour = variable)) +
+        geom_line(show.legend=T)+
+        #scale_y_continuous(name="Coefficient", limits = c(-22, 15)) +
+        #scale_colour_manual(values = c(cores[4], cores[3], cores[6], cores[5], cores[1]))+
+        #scale_x_date(date_breaks = "24 months", name = "Year", labels = date_format("%Y"))+ 
+        theme_bw()
+p4 <- p4 + theme(axis.text.x = element_text(angle=25, hjust = 1, size = 6), axis.title.x = element_blank(), axis.title.y = element_text(size = 6), legend.text = element_text(size=6), legend.title = element_text(size=6), axis.text.y = element_text(size=6)) 
+p4
+
+names(returns_melt) <- c("Data", "Company", "Return")
+names(volume_melt) <- c("Data", "Company", "Volume")
+
+data_frame <- merge(returns_melt, volume_melt, by = c("Data", "Company"))
+```
+
+
+# Trying the first synthetic
+
+```{r, warning = FALSE, message = FALSE}
+controles <-  unique(data_frame[data_frame$Company!="Vale.ADR",2])
+controles_2 <- data.frame(unique(data_frame[,2]), 1:(length(controles)+1))
+controles <- controles_2[-26,2]
+names(controles_2) <- c("Company", "Index")
+
+data_frame <- merge(data_frame, controles_2, by = "Company")
+
+data_frame[1,1]
+data_frame$data2 <- as.numeric(paste0(substr(data_frame[,2],1,4),substr(data_frame[,2],6,7),substr(data_frame[,2],9,10)))
+
+data_frame$Company <- as.character(data_frame$Company)
+
+data_frame2 <- c(data_frame[,1], data_frame[,5], data_frame[,6], data_frame[,3], data_frame[,4])
+
+vale_controle <- dataprep(
+  foo=data_frame,
+  predictors = 'Volume', 
+  predictors.op = 'mean',
+  time.predictors.prior = 20140103:20151115,
+  dependent = 'Return',
+  unit.variable = 'Index',
+  #unit.names.variable = 'Company',
+  time.variable = 'Data',
+  treatment.identifier = 26,
+  controls.identifier = controles,
+  time.optimize.ssr = 20140103:20151115,
+  time.plot = 20140103:20181231)
+```
+
