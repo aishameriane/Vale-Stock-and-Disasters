@@ -18,13 +18,49 @@ My to-do list is:
 
 * Write an script to download the data from the [30 mining companies listed on NYSE](https://www.investing.com/stock-screener/?sp=country::5|sector::a|industry::16|equityType::a|exchange::1%3Ceq_market_cap;1);
     * *Stretch goal*: get some control data, for example prices of mining ore, SP500 index
-* Clear data to get the daily prices;
+* Clear data to get the daily returns;
     * *Stretch goal*: Get the list of the calendar business days to make easier to cross with the disaster;
     * *Stretch goal*: Compare the prices of the Vale do Rio Doce stocks in B3 (former BM&F) and NYSE;
 * Find the cut point in the series to split the data for two separate sets: one for the Mariana disaster (05/11/2015) and another for Brumadinho disaster (25/01/2019);
 * Get the package and documentation for the synthetic control;
     * Run some cluster analysis;
     * See if the differences (if exist) are equal between the two disasters.
+
+What I have been into (updated on 13/05):
+
+* I downloaded the stock info and calculated returns;
+* I downloaded volume to use as regressor;
+* I've read a bunch of stuff about Synth package.
+
+Where I am currently:
+
+* I'm trying to get the data frame right in order to build the synthetic Vale. What I need is:
+  * A data frame where the first column is the name of the company and has the return and volume, as well as the Data and a column with numerical indexes for the Time and for the Company;
+  * A data frame with the indexes only for the controls (?)
+
+Some links I crossed upon and might come in hand in the future:
+
+* Making tables in Markdown:
+    * https://www.displayr.com/formattable/?utm_medium=Feed&utm_source=Syndication
+    * https://www.jakeruss.com/cheatsheets/stargazer/#the-default-summary-statistics-table
+    * https://www.princeton.edu/~otorres/NiceOutputR.pdf
+    * https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html
+    * https://people.ok.ubc.ca/jpither/modules/Tables_markdown.html
+    * https://rstudio-pubs-static.s3.amazonaws.com/132624_226026c074754b4484948fe3f70eceeb.html
+
+* `Quantmod` package (to get data):
+
+    * https://rstudio-pubs-static.s3.amazonaws.com/364194_96fa6ffa96d84b4ea95e831592214b97.html
+    * https://www.quantmod.com/examples/data/
+
+* Synthetic control in R
+    * https://towardsdatascience.com/causal-inference-using-difference-in-differences-causal-impact-and-synthetic-control-f8639c408268
+    * http://rpubs.com/danilofreire/synth
+    * https://cran.r-project.org/web/packages/microsynth/vignettes/introduction.html
+    * https://yiqingxu.org/software/gsynth/gsynth_examples.html
+    * https://core.ac.uk/download/pdf/86439379.pdf
+    * https://aheblog.com/2017/11/02/method-of-the-month-synthetic-control/
+    * https://www.urban.org/sites/default/files/publication/89246/the_synthetic_control_method_as_a_tool_1.pdf
 
 ## Downloading packages
 
@@ -71,12 +107,19 @@ volume  <- volume[-1,]
 
 ```{r, message = FALSE, warning = FALSE}
 datas        <- time(returns)
+#df1          <- data.frame(datas, returns, seq(1, nrow(volume), by = 1))
 df1          <- data.frame(datas, returns)
+#names(df1)[29] <- "tempo_id"
 returns_melt <- melt(data = df1, id.vars = "datas")
 
 datas        <- time(volume)
+#df2 <- data.frame(datas, volume, seq(1, nrow(volume), by = 1))
 df2 <- data.frame(datas, volume)
+#names(df2)[29] <- "tempo_id"
 volume_melt <- melt(data = df2, id.vars = "datas")
+
+df3 <- data.frame(datas, seq(1, length(datas), by = 1))
+names(df3) <- c("Data", "Time_id")
 
 cores <- brewer.pal(30, "Dark2")
 
@@ -93,38 +136,44 @@ names(returns_melt) <- c("Data", "Company", "Return")
 names(volume_melt) <- c("Data", "Company", "Volume")
 
 data_frame <- merge(returns_melt, volume_melt, by = c("Data", "Company"))
+data_frame_alt <- merge(data_frame, df3, by = c("Data"))
+
+# I HAVE TO COME BACK AND ADD THE INDEX
+data_frame_alt <- data.frame(data_frame_alt[,2], data_frame_alt[,1], data_frame_alt[,3], data_frame_alt[,4], data_frame_alt[,5])
+names(data_frame_alt) <- c("Company", "Data", "Return", "Volume", "Time_id")
 ```
 
 
 # Trying the first synthetic
 
-```{r, warning = FALSE, message = FALSE}
-controles <-  unique(data_frame[data_frame$Company!="Vale.ADR",2])
-controles_2 <- data.frame(unique(data_frame[,2]), 1:(length(controles)+1))
+```{r, warning = FALSE, message = FALSE, eval = FALSE}
+controles <-  unique(data_frame[data_frame$Company!="Vale.ADR",1])
+controles_2 <- data.frame(unique(data_frame_alt[,1]), 1:(length(controles)+1))
 controles <- controles_2[-26,2]
 names(controles_2) <- c("Company", "Index")
 
-data_frame <- merge(data_frame, controles_2, by = "Company")
+data_frame <- merge(data_frame_alt, controles_2, by = "Company")
 
 data_frame[1,1]
-data_frame$data2 <- as.numeric(paste0(substr(data_frame[,2],1,4),substr(data_frame[,2],6,7),substr(data_frame[,2],9,10)))
 
 data_frame$Company <- as.character(data_frame$Company)
+```
 
-data_frame2 <- c(data_frame[,1], data_frame[,5], data_frame[,6], data_frame[,3], data_frame[,4])
+I'm still having trouble organizing the data
 
+```{r, eval = FALSE}
 vale_controle <- dataprep(
   foo=data_frame,
   predictors = 'Volume', 
   predictors.op = 'mean',
-  time.predictors.prior = 20140103:20151115,
+  time.predictors.prior = 1:491,
   dependent = 'Return',
-  unit.variable = 'Index',
-  #unit.names.variable = 'Company',
+  unit.variable = 'Index.x',
+  unit.names.variable = 'Company',
   time.variable = 'Data',
   treatment.identifier = 26,
   controls.identifier = controles,
-  time.optimize.ssr = 20140103:20151115,
-  time.plot = 20140103:20181231)
+  time.optimize.ssr = 1:491,
+  time.plot = 1:1257)
 ```
 
