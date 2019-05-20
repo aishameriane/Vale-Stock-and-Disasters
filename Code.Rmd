@@ -32,11 +32,13 @@ What I have been into (updated on 13/05):
 * I downloaded volume to use as regressor;
 * I've read a bunch of stuff about Synth package.
 
-Where I am currently:
+What to do next:
 
 * I'm trying to get the data frame right in order to build the synthetic Vale. What I need is:
-  * A data frame where the first column is the name of the company and has the return and volume, as well as the Data and a column with numerical indexes for the Time and for the Company;
-  * A data frame with the indexes only for the controls (?)
+  * A data frame where the first column is the unique code identifying the company, followed by the names,
+  the date and a correspondinng column with numerical indexes for the time, a column with volume (the predictor) and another with the price (the dependent)
+  * A vector with the numbers of the controls
+  * Know the number code for Vale
 
 Some links I crossed upon and might come in hand in the future:
 
