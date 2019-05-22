@@ -18,27 +18,38 @@ My to-do list is:
 
 * Write an script to download the data from the [30 mining companies listed on NYSE](https://www.investing.com/stock-screener/?sp=country::5|sector::a|industry::16|equityType::a|exchange::1%3Ceq_market_cap;1);
     * *Stretch goal*: get some control data, for example prices of mining ore, SP500 index
-* Clear data to get the daily returns;
-    * *Stretch goal*: Get the list of the calendar business days to make easier to cross with the disaster;
+* ~Clear data to get the daily returns;~ (FINISHED)
+    * ~*Stretch goal*: Get the list of the calendar business days to make easier to cross with the disaster;~ (NOT USEFUL)
     * *Stretch goal*: Compare the prices of the Vale do Rio Doce stocks in B3 (former BM&F) and NYSE;
-* Find the cut point in the series to split the data for two separate sets: one for the Mariana disaster (05/11/2015) and another for Brumadinho disaster (25/01/2019);
+* ~Find the cut point in the series to split the data for two separate sets: one for the Mariana disaster (05/11/2015) and another for Brumadinho disaster (25/01/2019);~ (FINISHED)
 * Get the package and documentation for the synthetic control;
+    * Run for the whole dataset;
+    * Run for two subsets (near the disasters date)
     * Run some cluster analysis;
     * See if the differences (if exist) are equal between the two disasters.
 
-What I have been into (updated on 13/05):
+What I have been into (updated on 22/05):
 
-* I downloaded the stock info and calculated returns;
-* I downloaded volume to use as regressor;
-* I've read a bunch of stuff about Synth package.
+* 22/05 - After long hours of struggling I've found the error with my splitting that prevented me from running the synth routine in subsets of my original dataset. Using only the volume as predictor and the dataset streching from one month before and one month after each disaster the results are not very promising;
+* 20/05 - I finished running the synth() routine for the whole dataset;
+* 13/05 - I downloaded the stock info and calculated returns;
+* 13/05 - I downloaded volume to use as regressor;
+* 13/05 - I've read a bunch of stuff about Synth package.
+
 
 What to do next:
 
-* I'm trying to get the data frame right in order to build the synthetic Vale. What I need is:
-  * A data frame where the first column is the unique code identifying the company, followed by the names,
-  the date and a correspondinng column with numerical indexes for the time, a column with volume (the predictor) and another with the price (the dependent)
-  * A vector with the numbers of the controls
-  * Know the number code for Vale
+* Make the plot with all grey lines and one bacl line;
+* Make descriptives for the subsets;
+* Subset more, i.e., divide in different points of time;
+* Try using the `gsynth` package;
+* Get more controls:
+    * I'm not sure if I'll be able to find more variables with daily values like the volume. One idea is to calculate the weekly returns.
+* ~I'm trying to get the data frame right in order to build the synthetic Vale. What I need is:~
+  * ~A data frame where the first column is the unique code identifying the company, followed by the names,
+  the date and a correspondinng column with numerical indexes for the time, a column with volume (the predictor) and another with the price (the dependent)~ (DONE)
+  * ~A vector with the numbers of the controls~ (DONE)
+  * ~Know the number code for Vale~ (DONE, 24)
 
 Some links I crossed upon and might come in hand in the future:
 
@@ -57,6 +68,7 @@ Some links I crossed upon and might come in hand in the future:
 
 * Synthetic control in R
     * https://towardsdatascience.com/causal-inference-using-difference-in-differences-causal-impact-and-synthetic-control-f8639c408268
+    * https://yiqingxu.org/software/gsynth/gsynth_examples.html
     * http://rpubs.com/danilofreire/synth
     * https://cran.r-project.org/web/packages/microsynth/vignettes/introduction.html
     * https://yiqingxu.org/software/gsynth/gsynth_examples.html
@@ -71,7 +83,7 @@ If mirror 10 ("UFRJ") is offline, try changing `ind = 10` to `ind = 1`. Do the s
 ```{r, warning = FALSE, message = FALSE}
 chooseCRANmirror(graphics = FALSE, ind = 10)
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries, Synth) 
+pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries, Synth, gsynth) 
 ```
 
 # Downloading and preparing data
@@ -153,28 +165,19 @@ data_frame4$Company <- as.character(data_frame4$Company)
 # Exploring the whole dataset
 
 ```{r, message = FALSE, warning = FALSE}
-datas        <- time(returns)
-#df1          <- data.frame(datas, returns, seq(1, nrow(volume), by = 1))
-df1          <- data.frame(datas, returns)
-#names(df1)[29] <- "tempo_id"
-returns_melt <- melt(data = df1, id.vars = "datas")
-
-datas        <- time(volume)
-#df2 <- data.frame(datas, volume, seq(1, nrow(volume), by = 1))
-df2 <- data.frame(datas, volume)
-#names(df2)[29] <- "tempo_id"
-volume_melt <- melt(data = df2, id.vars = "datas")
-
-df3 <- data.frame(datas, seq(1, length(datas), by = 1))
-names(df3) <- c("Data", "Time_id")
-
 cores <- brewer.pal(30, "Dark2")
+
+breakpoints_1 <- c(as.Date("2015-11-05"), as.Date("2019-01-25"))
+# Cada data entra separadamente
+bp1 <- c(which(data_frame4$Data == breakpoints_1[1]), 
+         which(data_frame4$Data == breakpoints_1[2]))
+bp1 <- bp1[c(1,(length(symbols)+1))]
 
 p4 <- ggplot(data_frame4, aes(Data, Return, colour = Company)) +
         geom_line(show.legend=T)+
-        #scale_y_continuous(name="Coefficient", limits = c(-22, 15)) +
-        #scale_colour_manual(values = c(cores[4], cores[3], cores[6], cores[5], cores[1]))+
-        #scale_x_date(date_breaks = "24 months", name = "Year", labels = date_format("%Y"))+ 
+        geom_vline(xintercept = breakpoints_1, linetype="longdash", size = 0.5, alpha = 0.35)+
+        annotate("text", x = breakpoints_1[1]+5, y = 1.5, label = paste0("Desastre\n de Mariana"), size = 2.5)+
+        annotate("text", x = breakpoints_1[2]+5, y = 1.5, label = paste0("Desastre\n de Brumadinho"), size = 2.5)+
         theme_bw()
 p4 <- p4 + theme(axis.text.x = element_text(angle=25, hjust = 1, size = 6), axis.title.x = element_blank(), axis.title.y = element_text(size = 6), legend.text = element_text(size=6), legend.title = element_text(size=6), axis.text.y = element_text(size=6)) 
 p4
@@ -217,6 +220,27 @@ path.plot(synth.res    = out,
 
 abline(v   = 15,
        lty = 2)
+
+gaps.plot(synth.res    = out,
+          dataprep.res = vale_controle,
+          Ylab         = c("Gap"),
+          Xlab         = c("Data"),
+          #Ylim         = c(-30, 30),
+          Main         = ""
+)
+
+abline(v   = 15,
+       lty = 2)
+```
+
+Now I'm going to use the `gsynth` package.
+
+```{r, eval = FALSE, message = FALSE, warning = FALSE}
+gsynth.out <- gsynth(Return ~ Time + Volume + Company, data = data_frame4,
+                     index = c("state","year"), force = "two-way", 
+                     CV = TRUE, r = c(0, 5), se = TRUE, 
+                     inference = "parametric", nboots = 1000,
+                     parallel = TRUE)
 ```
 
 # Now let's split the data between Brumadinho and Mariana
