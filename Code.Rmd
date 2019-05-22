@@ -79,10 +79,10 @@ pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, 
 First, I need to get the symbols list, they are in a github repo.
 
 ```{r, message = FALSE, warning = FALSE}
-#sheet   <- read.csv("D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Mining companies listed on NYSE.csv")
-sheet <- read.csv("https://raw.githubusercontent.com/aishameriane/Vale-Stock-and-Disasters/master/Mining%20companies%20listed%20on%20NYSE.csv?token=AAVGJTVQ6NHJQVC625KDS2S44IIYS")
+sheet <- read.csv("https://raw.githubusercontent.com/aishameriane/Vale-Stock-and-Disasters/master/Mining%20companies%20listed%20on%20NYSE.csv?token=AAVGJTQXJQADIEF7Z27VUIK45PV7E")
 colnames(sheet)[1] <- "Name"
-sheet <- sheet[-c(18,19,5),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
+sheet <- sheet[-c(18,19,5,21),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
+# I also removed NexGen Energy (21) because it has more than 600 missing points
 symbols <- as.character(sheet[,2])
 ```
 
@@ -91,9 +91,9 @@ I removed the preferential stocks from Arconic and Mechel (lines 5 and 19), as w
 Other stock that may be a problem is VEDL because the series starts on 01/09/2013, but I'll wait before removing it. NexGen (NXE) starts on Aug, 2013. All others have at least 10 years of data, so I'm not removing them at all. 
 
 ```{r, message = FALSE, warning = FALSE}
-getSymbols(symbols, src = 'yahoo', from = "2014-01-01", to = "2019-01-01", 
+getSymbols(symbols, src = 'yahoo', from = "2014-01-01", to = "2019-03-01", 
              auto.assign = TRUE, warnings = FALSE) 
-prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, MTL, NXE, LAC, UEC, PLM, TGB, URG, PLG, UAMY, GMO, XPL)
+prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, MTL, LAC, UEC, PLM, TGB, URG, PLG, UAMY, GMO, XPL)
 volume <- prices[,grepl( "Volume" , names(prices) )]
 prices <- prices[,grepl( "Close" , names(prices) )]
 colnames(volume) <- as.character(sheet[,1])
@@ -103,9 +103,54 @@ returns <- diff(log(prices))
 n <- length(returns)
 returns <- returns[-1,]
 volume  <- volume[-1,]
+
+colnames(volume) <- c("BHP", "BBL", "RIO", "VALE", "SCCO", "FCX", "ACH", "ARNC", "VEDL", "AA", "CCJ", "TRQ",
+				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "PLG", "UAMY", "GMO", "XPL")
+colnames(returns) <- c("BHP", "BBL", "RIO", "VALE", "SCCO", "FCX", "ACH", "ARNC", "VEDL", "AA", "CCJ", "TRQ",
+				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "PLG", "UAMY", "GMO", "XPL")
+
+Data <- time(returns)
+returns <- data.frame(returns)
+volume  <- data.frame(volume)
+returns$Data  <- Data
+volume$Data   <- Data
+
+returns_melt <- melt(data = returns, id.vars = "Data")
+volume_melt  <- melt(data = volume, id.vars = "Data")
+
+names(returns_melt) <- c("Data", "Company", "Return")
+names(volume_melt) <- c("Data", "Company", "Volume")
+
+data_frame <- merge(returns_melt, volume_melt, by = c("Data", "Company"))
+head(data_frame)
+
+Company_index <- unique(data_frame[,2])
+Company_index <- data.frame(Company_index, seq(1, length(Company_index), by = 1))
+head(Company_index)
+names(Company_index) <- c("Company", "Company_index")
+
+Date_index <- unique(returns[,27])
+Date_index <- data.frame(Date_index, seq(1, length(Date_index), by = 1))
+head(Date_index)
+names(Date_index) <- c("Data", "Date_index")
+
+data_frame2 <- merge(data_frame, Company_index, by = c("Company"))
+head(data_frame2)
+# Vale is the company number 24
+
+data_frame3 <- merge(data_frame2, Date_index, by = c("Data"))
+
+#Now I need a new vector with the controls
+
+Controles <- Company_index[-24,2]
+
+data_frame4 <- cbind(data_frame3[,6], data_frame3[,1:5])
+names(data_frame4)[1] <- ("Time")
+rm(data_frame3, data_frame2, data_frame)
+data_frame4$Company <- as.character(data_frame4$Company)
 ```
 
-# Exploring data
+# Exploring the whole dataset
 
 ```{r, message = FALSE, warning = FALSE}
 datas        <- time(returns)
@@ -125,7 +170,7 @@ names(df3) <- c("Data", "Time_id")
 
 cores <- brewer.pal(30, "Dark2")
 
-p4 <- ggplot(returns_melt, aes(datas, value, colour = variable)) +
+p4 <- ggplot(data_frame4, aes(Data, Return, colour = Company)) +
         geom_line(show.legend=T)+
         #scale_y_continuous(name="Coefficient", limits = c(-22, 15)) +
         #scale_colour_manual(values = c(cores[4], cores[3], cores[6], cores[5], cores[1]))+
@@ -133,49 +178,141 @@ p4 <- ggplot(returns_melt, aes(datas, value, colour = variable)) +
         theme_bw()
 p4 <- p4 + theme(axis.text.x = element_text(angle=25, hjust = 1, size = 6), axis.title.x = element_blank(), axis.title.y = element_text(size = 6), legend.text = element_text(size=6), legend.title = element_text(size=6), axis.text.y = element_text(size=6)) 
 p4
-
-names(returns_melt) <- c("Data", "Company", "Return")
-names(volume_melt) <- c("Data", "Company", "Volume")
-
-data_frame <- merge(returns_melt, volume_melt, by = c("Data", "Company"))
-data_frame_alt <- merge(data_frame, df3, by = c("Data"))
-
-# I HAVE TO COME BACK AND ADD THE INDEX
-data_frame_alt <- data.frame(data_frame_alt[,2], data_frame_alt[,1], data_frame_alt[,3], data_frame_alt[,4], data_frame_alt[,5])
-names(data_frame_alt) <- c("Company", "Data", "Return", "Volume", "Time_id")
 ```
 
 
-# Trying the first synthetic
-
-```{r, warning = FALSE, message = FALSE, eval = FALSE}
-controles <-  unique(data_frame[data_frame$Company!="Vale.ADR",1])
-controles_2 <- data.frame(unique(data_frame_alt[,1]), 1:(length(controles)+1))
-controles <- controles_2[-26,2]
-names(controles_2) <- c("Company", "Index")
-
-data_frame <- merge(data_frame_alt, controles_2, by = "Company")
-
-data_frame[1,1]
-
-data_frame$Company <- as.character(data_frame$Company)
-```
-
-I'm still having trouble organizing the data
+## Trying the first synthetic with all data together
 
 ```{r, eval = FALSE}
 vale_controle <- dataprep(
-  foo=data_frame,
+  foo=data_frame4,
   predictors = 'Volume', 
   predictors.op = 'mean',
   time.predictors.prior = 1:491,
   dependent = 'Return',
-  unit.variable = 'Index.x',
+  unit.variable = 'Company_index',
   unit.names.variable = 'Company',
-  time.variable = 'Data',
-  treatment.identifier = 26,
-  controls.identifier = controles,
+  time.variable = 'Time',
+  treatment.identifier = 24,
+  controls.identifier = Controles,
   time.optimize.ssr = 1:491,
   time.plot = 1:1257)
+
+out <- synth(data.prep.obj = vale_controle,optimxmethod = 'BFGS')
+
+tabelas <- synth.tab(synth.res = out,dataprep.res = vale_controle,round.digit = 3)
+path_plot<-path.plot(synth.res = out,dataprep.res = vale_controle,Ylab = 'Retornos',Xlab='')
+gaps.plot(synth.res = out,dataprep.res = vale_controle,Main = '',Xlab = '',Ylab = 'gap entre Vale e Controle sintético')
+
+stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
+stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
+
+path.plot(synth.res    = out,
+          dataprep.res = vale_controle,
+          Ylab         = c("Y"),
+          Xlab         = c("Data"),
+          Legend       = c("Vale","Vale sintética"),
+          Legend.position = c("topleft")
+)
+
+abline(v   = 15,
+       lty = 2)
 ```
 
+# Now let's split the data between Brumadinho and Mariana
+
+## Mariana
+
+Splitting the dataset between 05/10/2015 (t=442) and 04/12/2015 (t=485). The disaster occured on 05/11/2015. So we are going to use as split t=465 (05/11/2015).
+
+```{r, warning = FALSE, message = FALSE}
+mariana <- data_frame4[which(data_frame4$Data == '2015-10-05'):which(data_frame4$Data == '2015-12-07'),]
+mariana <- mariana[-nrow(mariana),]
+
+dim(mariana)
+head(mariana)
+tail(mariana)
+
+vale_controle <- dataprep(
+  foo=mariana,
+  predictors = 'Volume', 
+  predictors.op = 'mean',
+  time.predictors.prior = 442:465,
+  dependent = 'Return',
+  unit.variable = 'Company_index',
+  unit.names.variable = 'Company',
+  time.variable = 'Time',
+  treatment.identifier = 24,
+  controls.identifier = Controles,
+  time.optimize.ssr = 442:465,
+  time.plot = 442:485)
+
+out <- synth(data.prep.obj = vale_controle,optimxmethod = 'BFGS')
+
+tabelas <- synth.tab(synth.res = out,dataprep.res = vale_controle,round.digit = 3)
+path_plot<-path.plot(synth.res = out,dataprep.res = vale_controle,Ylab = 'Retornos',Xlab='')
+gaps.plot(synth.res = out,dataprep.res = vale_controle,Main = '',Xlab = '',Ylab = 'gap entre Vale e Controle sintético')
+
+stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
+stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
+
+path.plot(synth.res    = out,
+          dataprep.res = vale_controle,
+          Ylab         = c("Y"),
+          Xlab         = c("Data"),
+          Legend       = c("Vale","Vale sintética"),
+          Legend.position = c("topleft")
+)
+
+abline(v   = 15,
+       lty = 2)
+
+```
+
+## Brumadinho
+
+Splitting the dataset between 26/12/2018 (t=1254) and 25/02/2019 (t=1294). The disaster occured on 25/01/2019. So we are going to use as split t=1274 (25/01/2019).
+
+```{r, warning = FALSE, message = FALSE}
+brumadinho <- data_frame4[which(data_frame4$Data == '2018-12-26'):which(data_frame4$Data == '2019-02-26'),]
+brumadinho <- brumadinho[-nrow(brumadinho),]
+
+dim(brumadinho)
+head(brumadinho)
+tail(brumadinho)
+
+vale_controle <- dataprep(
+  foo=brumadinho,
+  predictors = 'Volume', 
+  predictors.op = 'mean',
+  time.predictors.prior = 1254:1274,
+  dependent = 'Return',
+  unit.variable = 'Company_index',
+  unit.names.variable = 'Company',
+  time.variable = 'Time',
+  treatment.identifier = 24,
+  controls.identifier = Controles,
+  time.optimize.ssr = 1254:1274,
+  time.plot = 1254:1294)
+
+out <- synth(data.prep.obj = vale_controle,optimxmethod = 'BFGS')
+
+tabelas <- synth.tab(synth.res = out,dataprep.res = vale_controle,round.digit = 3)
+path_plot<-path.plot(synth.res = out,dataprep.res = vale_controle,Ylab = 'Retornos',Xlab='')
+gaps.plot(synth.res = out,dataprep.res = vale_controle,Main = '',Xlab = '',Ylab = 'gap entre Vale e Controle sintético')
+
+stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
+stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
+
+path.plot(synth.res    = out,
+          dataprep.res = vale_controle,
+          Ylab         = c("Y"),
+          Xlab         = c("Data"),
+          Legend       = c("Vale","Vale sintética"),
+          Legend.position = c("topleft")
+)
+
+abline(v   = 15,
+       lty = 2)
+
+```
