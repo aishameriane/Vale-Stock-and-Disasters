@@ -18,10 +18,10 @@ My to-do list is:
 
 * Write an script to download the data from the [30 mining companies listed on NYSE](https://www.investing.com/stock-screener/?sp=country::5|sector::a|industry::16|equityType::a|exchange::1%3Ceq_market_cap;1);
     * *Stretch goal*: get some control data, for example prices of mining ore, SP500 index
-* ~Clear data to get the daily returns;~ (FINISHED)
-    * ~*Stretch goal*: Get the list of the calendar business days to make easier to cross with the disaster;~ (NOT USEFUL)
+* ~~Clear data to get the daily returns;~~ (FINISHED)
+    * ~~*Stretch goal*: Get the list of the calendar business days to make easier to cross with the disaster;~~ (NOT USEFUL)
     * *Stretch goal*: Compare the prices of the Vale do Rio Doce stocks in B3 (former BM&F) and NYSE;
-* ~Find the cut point in the series to split the data for two separate sets: one for the Mariana disaster (05/11/2015) and another for Brumadinho disaster (25/01/2019);~ (FINISHED)
+* ~~Find the cut point in the series to split the data for two separate sets: one for the Mariana disaster (05/11/2015) and another for Brumadinho disaster (25/01/2019);~~ (FINISHED)
 * Get the package and documentation for the synthetic control;
     * Run for the whole dataset;
     * Run for two subsets (near the disasters date)
@@ -45,11 +45,11 @@ What to do next:
 * Try using the `gsynth` package;
 * Get more controls:
     * I'm not sure if I'll be able to find more variables with daily values like the volume. One idea is to calculate the weekly returns.
-* ~I'm trying to get the data frame right in order to build the synthetic Vale. What I need is:~
-  * ~A data frame where the first column is the unique code identifying the company, followed by the names,
-  the date and a correspondinng column with numerical indexes for the time, a column with volume (the predictor) and another with the price (the dependent)~ (DONE)
-  * ~A vector with the numbers of the controls~ (DONE)
-  * ~Know the number code for Vale~ (DONE, 24)
+* ~~I'm trying to get the data frame right in order to build the synthetic Vale. What I need is:~~
+  * ~~A data frame where the first column is the unique code identifying the company, followed by the names,
+  the date and a correspondinng column with numerical indexes for the time, a column with volume (the predictor) and another with the price (the dependent)~~ (DONE)
+  * ~~A vector with the numbers of the controls~~ (DONE)
+  * ~~Know the number code for Vale~~ (DONE, 24)
 
 Some links I crossed upon and might come in hand in the future:
 
@@ -83,7 +83,7 @@ If mirror 10 ("UFRJ") is offline, try changing `ind = 10` to `ind = 1`. Do the s
 ```{r, warning = FALSE, message = FALSE}
 chooseCRANmirror(graphics = FALSE, ind = 10)
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries, Synth, gsynth) 
+pacman::p_load(ggplot2, forecast, BETS, seasonal, seasonalview, lubridate, zoo, stargazer, gridExtra, reshape2, ggfortify, RColorBrewer, scales, quantmod, PerformanceAnalytics, strucchange, knitr, grid, ggpubr, gdata, vars, urca, compiler, DescTools, kableExtra, readxl, tseries, Synth, gsynth, SCtools) 
 ```
 
 # Downloading and preparing data
@@ -93,8 +93,9 @@ First, I need to get the symbols list, they are in a github repo.
 ```{r, message = FALSE, warning = FALSE}
 sheet <- read.csv("https://raw.githubusercontent.com/aishameriane/Vale-Stock-and-Disasters/master/Mining%20companies%20listed%20on%20NYSE.csv?token=AAVGJTQXJQADIEF7Z27VUIK45PV7E")
 colnames(sheet)[1] <- "Name"
-sheet <- sheet[-c(18,19,5,21),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
+sheet <- sheet[-c(18,19,5,21,27),] # for some reson the thing does not understand the -P notation for the preferential stocks, so for now I removed them
 # I also removed NexGen Energy (21) because it has more than 600 missing points
+# PLG has a HUGE outlier and was also removed
 symbols <- as.character(sheet[,2])
 ```
 
@@ -105,35 +106,56 @@ Other stock that may be a problem is VEDL because the series starts on 01/09/201
 ```{r, message = FALSE, warning = FALSE}
 getSymbols(symbols, src = 'yahoo', from = "2014-01-01", to = "2019-03-01", 
              auto.assign = TRUE, warnings = FALSE) 
-prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, MTL, LAC, UEC, PLM, TGB, URG, PLG, UAMY, GMO, XPL)
+prices <- merge(BHP, BBL, RIO, VALE, SCCO, FCX, ACH, ARNC, VEDL, AA, CCJ, TRQ, CLF, CMC, HBM, HSC, MTL, LAC, UEC, PLM, TGB, URG, UAMY, GMO, XPL)
 volume <- prices[,grepl( "Volume" , names(prices) )]
+amp_diaria   <- prices[,grepl( "Close" , names(prices) )] - prices[,grepl( "Open" , names(prices) )]
+amp_total    <- prices[,grepl( "High" , names(prices) )] - prices[,grepl( "Low" , names(prices) )]
 prices <- prices[,grepl( "Close" , names(prices) )]
+
 colnames(volume) <- as.character(sheet[,1])
 colnames(prices) <- as.character(sheet[,1])
+colnames(amp_diaria) <- as.character(sheet[,1])
+colnames(amp_total) <- as.character(sheet[,1])
 
 returns <- diff(log(prices))
 n <- length(returns)
 returns <- returns[-1,]
 volume  <- volume[-1,]
+amp_diaria <- amp_diaria[-1,]
+amp_total <- amp_total[-1,]
 
 colnames(volume) <- c("BHP", "BBL", "RIO", "VALE", "SCCO", "FCX", "ACH", "ARNC", "VEDL", "AA", "CCJ", "TRQ",
-				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "PLG", "UAMY", "GMO", "XPL")
+				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "UAMY", "GMO", "XPL")
 colnames(returns) <- c("BHP", "BBL", "RIO", "VALE", "SCCO", "FCX", "ACH", "ARNC", "VEDL", "AA", "CCJ", "TRQ",
-				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "PLG", "UAMY", "GMO", "XPL")
+				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "UAMY", "GMO", "XPL")
+colnames(amp_diaria) <- c("BHP", "BBL", "RIO", "VALE", "SCCO", "FCX", "ACH", "ARNC", "VEDL", "AA", "CCJ", "TRQ",
+				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "UAMY", "GMO", "XPL")
+colnames(amp_total) <- c("BHP", "BBL", "RIO", "VALE", "SCCO", "FCX", "ACH", "ARNC", "VEDL", "AA", "CCJ", "TRQ",
+				 "CLF", "CMC", "HBM", "HSC", "MTL", "LAC", "UEC", "PLM", "TGB", "URG", "UAMY", "GMO", "XPL")
 
 Data <- time(returns)
 returns <- data.frame(returns)
 volume  <- data.frame(volume)
+amp_diaria <- data.frame(amp_diaria)
+amp_total <- data.frame(amp_total)
 returns$Data  <- Data
 volume$Data   <- Data
+amp_diaria$Data  <- Data
+amp_total$Data  <- Data
 
 returns_melt <- melt(data = returns, id.vars = "Data")
 volume_melt  <- melt(data = volume, id.vars = "Data")
+amp_diaria_melt  <- melt(data = amp_diaria, id.vars = "Data")
+amp_total_melt  <- melt(data = amp_total, id.vars = "Data")
 
 names(returns_melt) <- c("Data", "Company", "Return")
 names(volume_melt) <- c("Data", "Company", "Volume")
+names(amp_diaria_melt) <- c("Data", "Company", "Daily_Amp")
+names(amp_total_melt) <- c("Data", "Company", "Max_Amp")
 
 data_frame <- merge(returns_melt, volume_melt, by = c("Data", "Company"))
+data_frame <- merge(data_frame, amp_total_melt,  by = c("Data", "Company"))
+data_frame <- merge(data_frame, amp_diaria_melt,  by = c("Data", "Company"))
 head(data_frame)
 
 Company_index <- unique(data_frame[,2])
@@ -141,22 +163,22 @@ Company_index <- data.frame(Company_index, seq(1, length(Company_index), by = 1)
 head(Company_index)
 names(Company_index) <- c("Company", "Company_index")
 
-Date_index <- unique(returns[,27])
+Date_index <- unique(returns[,26])
 Date_index <- data.frame(Date_index, seq(1, length(Date_index), by = 1))
 head(Date_index)
 names(Date_index) <- c("Data", "Date_index")
 
 data_frame2 <- merge(data_frame, Company_index, by = c("Company"))
 head(data_frame2)
-# Vale is the company number 24
+# Vale is the company number 23
 
 data_frame3 <- merge(data_frame2, Date_index, by = c("Data"))
 
 #Now I need a new vector with the controls
 
-Controles <- Company_index[-24,2]
+Controles <- Company_index[-23,2]
 
-data_frame4 <- cbind(data_frame3[,6], data_frame3[,1:5])
+data_frame4 <- cbind(data_frame3[,8], data_frame3[,1:7])
 names(data_frame4)[1] <- ("Time")
 rm(data_frame3, data_frame2, data_frame)
 data_frame4$Company <- as.character(data_frame4$Company)
@@ -176,11 +198,18 @@ bp1 <- bp1[c(1,(length(symbols)+1))]
 p4 <- ggplot(data_frame4, aes(Data, Return, colour = Company)) +
         geom_line(show.legend=T)+
         geom_vline(xintercept = breakpoints_1, linetype="longdash", size = 0.5, alpha = 0.35)+
-        annotate("text", x = breakpoints_1[1]+5, y = 1.5, label = paste0("Desastre\n de Mariana"), size = 2.5)+
-        annotate("text", x = breakpoints_1[2]+5, y = 1.5, label = paste0("Desastre\n de Brumadinho"), size = 2.5)+
+        annotate("text", x = breakpoints_1[1]+5, y = 1.5, label = paste0("Mariana Disaster"), size = 2.5)+
+        annotate("text", x = breakpoints_1[2]+5, y = 1.5, label = paste0("Brumadinho Disaster"), size = 2.5)+
         theme_bw()
 p4 <- p4 + theme(axis.text.x = element_text(angle=25, hjust = 1, size = 6), axis.title.x = element_blank(), axis.title.y = element_text(size = 6), legend.text = element_text(size=6), legend.title = element_text(size=6), axis.text.y = element_text(size=6)) 
 p4
+
+
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_returns.pdf", width = 12, height = 6)
+#p4
+#dev.off()
+
+
 ```
 
 
@@ -189,14 +218,14 @@ p4
 ```{r, eval = FALSE}
 vale_controle <- dataprep(
   foo=data_frame4,
-  predictors = 'Volume', 
+  predictors = c('Volume', 'Max_Amp', 'Daily_Amp'), 
   predictors.op = 'mean',
   time.predictors.prior = 1:491,
   dependent = 'Return',
   unit.variable = 'Company_index',
   unit.names.variable = 'Company',
   time.variable = 'Time',
-  treatment.identifier = 24,
+  treatment.identifier = 23,
   controls.identifier = Controles,
   time.optimize.ssr = 1:491,
   time.plot = 1:1257)
@@ -207,8 +236,8 @@ tabelas <- synth.tab(synth.res = out,dataprep.res = vale_controle,round.digit = 
 path_plot<-path.plot(synth.res = out,dataprep.res = vale_controle,Ylab = 'Retornos',Xlab='')
 gaps.plot(synth.res = out,dataprep.res = vale_controle,Main = '',Xlab = '',Ylab = 'gap entre Vale e Controle sintético')
 
-stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
-stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
+#stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
+#stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
 
 path.plot(synth.res    = out,
           dataprep.res = vale_controle,
@@ -259,14 +288,14 @@ tail(mariana)
 
 vale_controle <- dataprep(
   foo=mariana,
-  predictors = 'Volume', 
+  predictors = c('Volume', 'Max_Amp', 'Daily_Amp'), 
   predictors.op = 'mean',
   time.predictors.prior = 442:465,
   dependent = 'Return',
   unit.variable = 'Company_index',
   unit.names.variable = 'Company',
   time.variable = 'Time',
-  treatment.identifier = 24,
+  treatment.identifier = 23,
   controls.identifier = Controles,
   time.optimize.ssr = 442:465,
   time.plot = 442:485)
@@ -274,22 +303,36 @@ vale_controle <- dataprep(
 out <- synth(data.prep.obj = vale_controle,optimxmethod = 'BFGS')
 
 tabelas <- synth.tab(synth.res = out,dataprep.res = vale_controle,round.digit = 3)
+print(tabelas)
 path_plot<-path.plot(synth.res = out,dataprep.res = vale_controle,Ylab = 'Retornos',Xlab='')
 gaps.plot(synth.res = out,dataprep.res = vale_controle,Main = '',Xlab = '',Ylab = 'gap entre Vale e Controle sintético')
 
-stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
-stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
+#stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
+#stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
 
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_valesynth.pdf", width = 12, height = 6)
 path.plot(synth.res    = out,
           dataprep.res = vale_controle,
-          Ylab         = c("Y"),
-          Xlab         = c("Data"),
-          Legend       = c("Vale","Vale sintética"),
+          Ylab         = c("Returns"),
+          Xlab         = c(""),
+          Legend       = c("Vale","Synthetic"),
           Legend.position = c("topleft")
 )
+abline(v=465, lty=2, lwd=3)
+#dev.off()
 
-abline(v   = 15,
-       lty = 2)
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_valediff.pdf", width = 12, height = 6)
+gaps.plot(synth.res = out,dataprep.res = vale_controle,  Main = '',Xlab = '',Ylab = 'Difference  of returns')
+abline(v=465, lty=2, lwd=3)
+#dev.off()
+
+placebos <- generate.placebos(dataprep.out =  vale_controle, synth.out = out)
+
+#mspe.plot(placebos, discard.extreme = TRUE, mspe.limit = 20, plot.hist = FALSE)
+
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_marianaplacebo.pdf", width = 12, height = 6)
+plot.placebos(placebos)
+#dev.off()
 
 ```
 
@@ -307,14 +350,14 @@ tail(brumadinho)
 
 vale_controle <- dataprep(
   foo=brumadinho,
-  predictors = 'Volume', 
+  predictors = c('Volume', 'Max_Amp', 'Daily_Amp'), 
   predictors.op = 'mean',
   time.predictors.prior = 1254:1274,
   dependent = 'Return',
   unit.variable = 'Company_index',
   unit.names.variable = 'Company',
   time.variable = 'Time',
-  treatment.identifier = 24,
+  treatment.identifier = 23,
   controls.identifier = Controles,
   time.optimize.ssr = 1254:1274,
   time.plot = 1254:1294)
@@ -322,21 +365,35 @@ vale_controle <- dataprep(
 out <- synth(data.prep.obj = vale_controle,optimxmethod = 'BFGS')
 
 tabelas <- synth.tab(synth.res = out,dataprep.res = vale_controle,round.digit = 3)
+print(tabelas)
 path_plot<-path.plot(synth.res = out,dataprep.res = vale_controle,Ylab = 'Retornos',Xlab='')
 gaps.plot(synth.res = out,dataprep.res = vale_controle,Main = '',Xlab = '',Ylab = 'gap entre Vale e Controle sintético')
 
-stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
-stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
+#stargazer(tabelas$tab.pred,type = 'html',title = 'estimado controle e tratado')
+#stargazer(tabelas$tab.v,type = 'html',title = 'Pesos das variáveis')
 
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_brumasynth.pdf", width = 12, height = 6)
 path.plot(synth.res    = out,
           dataprep.res = vale_controle,
-          Ylab         = c("Y"),
-          Xlab         = c("Data"),
-          Legend       = c("Vale","Vale sintética"),
+          Ylab         = c("Returns"),
+          Xlab         = c(""),
+          Legend       = c("Vale","Synthetic"),
           Legend.position = c("topleft")
 )
+abline(v=1274, lty=2, lwd=3)
+#dev.off()
 
-abline(v   = 15,
-       lty = 2)
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_brumadiff.pdf", width = 12, height = 6)
+gaps.plot(synth.res = out,dataprep.res = vale_controle,  Main = '',Xlab = '',Ylab = 'Difference  of returns')
+abline(v=1274, lty=2, lwd=3)
+#dev.off()
 
+# Placebo
+placebos <- generate.placebos(dataprep.out =  vale_controle, synth.out = out)
+
+#mspe.plot(placebos, discard.extreme = TRUE, mspe.limit = 20, plot.hist = FALSE)
+
+#pdf(file = "D:\\Onedrive - Aisha\\OneDrive\\Documentos\\Graduação Economia UDESC\\2019-1\\Estratégia em Finanças - Daniel\\Artigo da disciplina\\Fig_brumaplacebo.pdf", width = 12, height = 6)
+plot.placebos(placebos)
+#dev.off()
 ```
